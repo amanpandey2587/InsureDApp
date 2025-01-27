@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { FileText, Upload } from 'lucide-react';
+import { FileText, Upload, Loader2 } from 'lucide-react';
 import { ethers } from 'ethers';
 import { getContract } from '../lib/contract';
 import { toast } from 'react-hot-toast';
@@ -37,8 +37,9 @@ export function PolicyList({ provider, signer }: PolicyListProps) {
   const [claimAmount, setClaimAmount] = useState('');
   const [documents, setDocuments] = useState<File | null>(null);
   const [uploadedDocumentUrl, setUploadedDocumentUrl] = useState('');
-
-  const PINATA_JWT = import.meta.env.VITE_JWT;
+  const [convertedAmount, setConvertedAmount] = useState("");
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const onDrop = useCallback((acceptedFiles: File[]) => {
     if (acceptedFiles.length > 0) {
@@ -64,38 +65,14 @@ export function PolicyList({ provider, signer }: PolicyListProps) {
   
     const formData = new FormData();
     formData.append('file', documents);
-  
-    // try {
-    //   const response = await axios.post('https://uploads.pinata.cloud/v3/files', formData, {
-    //     headers: {
-    //       Authorization: `Bearer ${PINATA_JWT}`,
-    //       'Content-Type': 'multipart/form-data',
-    //     },
-    //   });
-  
-    //   // Use the CID from the response data
-    //   const ipfsHash = response.data.cid; // Changed from IpfsHash to cid
-    //   console.log("Ipfs hash is ",ipfsHash)
-    //   const ipfsUrl = `https://gateway.pinata.cloud/ipfs/${ipfsHash}`;
-    //   console.log("ipfs url is ",ipfsUrl)
-    //   setUploadedDocumentUrl(ipfsUrl);
-    //   toast.success('File uploaded successfully');
-    //   return ipfsUrl;
-    // } catch (error) {
-    //   console.error('Upload error:', error);
-    //   toast.error('File upload failed');
-    //   return '';
-    // }
-    try{
-      const upload=await pinata.upload.file(documents)
-      console.log(upload)
-      const ipfsUrl=await pinata.gateways.convert(upload.IpfsHash)
-      console.log(ipfsUrl);
+    try {
+      const upload = await pinata.upload.file(documents);
+      const ipfsUrl = await pinata.gateways.convert(upload.IpfsHash);
       setUploadedDocumentUrl(ipfsUrl);
       toast.success('File uploaded successfully');
       return ipfsUrl;
-    }catch(error){
-      console.log(error)
+    } catch(error) {
+      console.error(error);
       toast.error('File upload failed');
       return '';
     }
@@ -120,6 +97,7 @@ export function PolicyList({ provider, signer }: PolicyListProps) {
       setPolicies(formattedPolicies);
     } catch (error) {
       console.error('Error fetching user policies:', error);
+      toast.error('Failed to fetch policies');
     }
   };
 
@@ -148,86 +126,112 @@ export function PolicyList({ provider, signer }: PolicyListProps) {
       setClaims(claimDetails);
     } catch (error) {
       console.error('Error fetching user claims:', error);
+      toast.error('Failed to fetch claims');
+    }
+  };
+
+  const convertToETH = async () => {
+    try {
+      const response = await axios.get(
+        `https://min-api.cryptocompare.com/data/price?fsym=ETH&tsyms=USD`
+      );
+      
+      const ethPriceInUSD = response.data.USD;
+      const converted = parseFloat(claimAmount) / ethPriceInUSD;
+      const formattedAmount = Number(converted.toFixed(8));
+      return formattedAmount;
+    } catch (error) {
+      console.error("Error fetching conversion rate:", error);
+      toast.error("Failed to fetch conversion rate");
+      return null;
     }
   };
 
   useEffect(() => {
-    if (signer && provider) {
-      fetchUserPolicies();
-      fetchUserClaims();
-    }
+    const fetchData = async () => {
+      if (signer && provider) {
+        setIsLoading(true);
+        try {
+          await Promise.all([fetchUserPolicies(), fetchUserClaims()]);
+        } finally {
+          setIsLoading(false);
+        }
+      }
+    };
+    
+    fetchData();
   }, [signer, provider]);
-
+  
   const handleSubmitClaim = async (policyId: number) => {
     const policy = policies.find((policy) => policy.id === policyId);
-
     if (!policy) {
       toast.error('Policy not found');
       return;
     }
-
+  
     if (!claimAmount || !documents) {
       toast.error('Please fill in all claim details');
       return;
     }
-
+  
     if (Number(claimAmount) > Number(policy.coverageAmount)) {
       toast.error('Claim amount exceeds coverage amount');
       return;
     }
-
+  
+    setIsSubmitting(true);
     try {
       const documentUrl = await uploadToPinata();
       if (!documentUrl) {
         toast.error('Document upload failed');
         return;
       }
-
+  
+      const converted = await convertToETH();
+      if (!converted) {
+        toast.error('Failed to convert claim amount to ETH');
+        return;
+      }
+  
       const contract = getContract(provider, signer);
-      const tx = await contract.submitClaim(policyId, ethers.parseUnits(claimAmount, 18), documentUrl);
+      const amountInWei = ethers.parseEther(converted.toString());
+      const tx = await contract.submitClaim(policyId, amountInWei, documentUrl);
       await tx.wait();
-
+  
       setClaimAmount('');
       setDocuments(null);
       setSelectedPolicy(null);
-
-      // Refresh claims
+  
       await fetchUserClaims();
-
+  
       toast.success('Claim submitted successfully');
     } catch (error) {
       toast.error('Failed to submit claim');
       console.error(error);
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
-  const hasClaimSubmitted = (policyId: number) => {
-    return claims.some((claim) => Number(claim.policyId) === policyId);
-  };
-
-  const hasApprovedClaim = (policyId: number) => {
-    return claims.some((claim) => 
-      Number(claim.policyId) === policyId && claim.status === 'Approved'
-    );
-  };
-
-  const hasRejectedClaim = (policyId: number) => {
-    return claims.some((claim) => 
-      Number(claim.policyId) === policyId && claim.status === 'Rejected'
-    );
-  };
   const getLatestClaimStatus = (policyId: number) => {
     const policyClaims = claims.filter((claim) => Number(claim.policyId) === policyId);
     
     if (policyClaims.length === 0) return null;
     
-    // Sort claims by submission date and get the latest
     const latestClaim = policyClaims.reduce((latest, current) => 
       current.submissionDate > latest.submissionDate ? current : latest
     );
 
     return latestClaim.status;
   };
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-[200px]">
+        <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -256,7 +260,7 @@ export function PolicyList({ provider, signer }: PolicyListProps) {
                     </div>
                     <div className="flex flex-col gap-2">
                       <span
-                        className={`px-2 py-1 rounded-full text-xs ${
+                        className={`px-2 py-1 mx-auto rounded-full text-xs ${
                           policy.isActive ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
                         }`}
                       >
@@ -299,6 +303,7 @@ export function PolicyList({ provider, signer }: PolicyListProps) {
                           <input
                             type="number"
                             value={claimAmount}
+                            placeholder='Amount not more than coverage amount of policy'
                             onChange={(e) => setClaimAmount(e.target.value)}
                             className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
                           />
@@ -324,9 +329,17 @@ export function PolicyList({ provider, signer }: PolicyListProps) {
                         </div>
                         <button
                           onClick={() => handleSubmitClaim(policy.id)}
-                          className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700"
+                          disabled={isSubmitting}
+                          className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 disabled:bg-blue-400 disabled:cursor-not-allowed flex items-center justify-center"
                         >
-                          {latestClaimStatus === 'Rejected' ? 'Resubmit Claim' : 'Submit Claim'}
+                          {isSubmitting ? (
+                            <>
+                              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                              Submitting...
+                            </>
+                          ) : (
+                            latestClaimStatus === 'Rejected' ? 'Resubmit Claim' : 'Submit Claim'
+                          )}
                         </button>
                       </div>
                     </div>

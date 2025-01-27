@@ -20,11 +20,11 @@ interface Claim {
 export const ProcessClaim: React.FC<ClaimProcessingProps> = ({ provider, signer }) => {
   const [claims, setClaims] = useState<Claim[]>([]);
   const [processing, setProcessing] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isOwner, setIsOwner] = useState(false);
 
   const fetchClaims = async () => {
-    // const toastId = toast.loading('Loading claims...');
     try {
       const contract = getContract(provider, signer);
 
@@ -50,13 +50,14 @@ export const ProcessClaim: React.FC<ClaimProcessingProps> = ({ provider, signer 
             });
           }
         }
-
         setClaims(claimList);
       }
     } catch (err) {
       console.error('Error fetching claims:', err);
       setError(err instanceof Error ? err.message : 'An unknown error occurred');
       toast.error('Failed to load claims.');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -71,7 +72,9 @@ export const ProcessClaim: React.FC<ClaimProcessingProps> = ({ provider, signer 
         await contract.processClaim(claimId, false);
       }
 
-      fetchClaims();
+      setLoading(true);
+      // toast.loading('Refreshing claims...');
+      await fetchClaims();
       toast.success(`Claim ${action === 'approve' ? 'approved' : 'rejected'} successfully!`);
     } catch (err) {
       console.error('Error processing claim:', err);
@@ -84,9 +87,22 @@ export const ProcessClaim: React.FC<ClaimProcessingProps> = ({ provider, signer 
 
   useEffect(() => {
     if (provider && signer) {
-      fetchClaims();
+      // const loadToast = toast.loading('Loading claims...');
+      fetchClaims().finally(() => {
+        // toast.dismiss(loadToast);
+      });
     }
   }, [provider, signer]);
+
+  if (loading) {
+    return (
+      <div className="w-full p-6 bg-blue-50 shadow-lg rounded-lg max-w-6xl mx-auto">
+        <div className="text-center text-blue-700 text-lg">
+          Loading claims...
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="w-full p-6 bg-blue-50 shadow-lg rounded-lg max-w-6xl mx-auto">
@@ -121,7 +137,16 @@ export const ProcessClaim: React.FC<ClaimProcessingProps> = ({ provider, signer 
                       <td className="px-4 py-3 text-sm text-blue-900">
                         {new Date(Number(claim.submissionDate) * 1000).toLocaleString()}
                       </td>
-                      <td className="px-4 py-3 text-sm text-blue-900">{claim.medicalDocuments}</td>
+                      <td className="px-4 py-3 text-sm text-blue-900">
+                        <a 
+                          href={claim.medicalDocuments} 
+                          target="_blank" 
+                          rel="noopener noreferrer" 
+                          className="text-blue-500 underline hover:text-blue-700"
+                        >
+                          {claim.medicalDocuments}
+                        </a>
+                      </td>
                       <td className="px-4 py-3 text-sm text-blue-900 flex flex-row gap-4">
                         <button
                           onClick={() => handleClaimAction(claim.id, 'approve')}
