@@ -1,5 +1,5 @@
 import { ethers } from 'ethers';
-
+// Contract Address - 0xC71340701FD98Be032D56C7D76a662415a70fc24
 export const CONTRACT_ADDRESS = import.meta.env.VITE_CONTRACT_ADDRESS;
 
 export const CONTRACT_ABI =[
