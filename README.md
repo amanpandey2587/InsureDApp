@@ -17,6 +17,7 @@ This project implements a decentralized health insurance platform where users ca
 - Claim Tracking: Users can track their submitted claims and receive updates on their status in real time.
 - Secure and Transparent Transactions: All transactions, policy details, and claim processes are immutably recorded on the blockchain.
 
+### Etherscan Link to see contract transaction: https://sepolia.etherscan.io/address/0xC71340701FD98Be032D56C7D76a662415a70fc24
 
 ## Technologies Used
 ### Blockchain & Smart Contracts
@@ -71,11 +72,11 @@ yarn add OR npm install
 
 Set up environment variables
 ```
+
+```
 RPC_URL =YOUR_RPC_URL
 VITE_PINATA_SECRET_KEY=SEPOLIA_WALLET_ACCOUNT_PRIVATE_KEY
 ETHERSCAN_API_KEY=YOUR_EMAILJS_SERVICE_ID
-
-```
 
 ```
 ```
